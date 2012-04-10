@@ -8,7 +8,7 @@
 module Graphics.Webcam.Linux.Internal
        ( 
          Image
-       , V4lCam' (..)
+       , V4lCamT (..)
        , InnerMonad (..)
        , getState
        , setState
@@ -31,32 +31,24 @@ module Graphics.Webcam.Linux.Internal
 
 import Graphics.V4L2
 import qualified Data.Set as S (toList)
-import Data.List (sortBy, unfoldr)
-import Data.Maybe (fromJust)
+import Data.List (sortBy)
 import Data.Word
--- import Codec.Image.DevIL
 import Control.Monad
--- import Control.Monad.IO.Class
 import Control.Monad.State
 import Control.Monad.Error
+import Control.Monad.Trans
 import Control.Exception
-import Control.Applicative ((<*))
-import Control.DeepSeq
 
-import Foreign.Marshal.Array (advancePtr)
 import Foreign.Ptr
 import Foreign.Storable
 import Foreign.ForeignPtr
-import Foreign.Marshal.Array
 
 import Data.Array.Repa hiding ((++))
 import Data.Array.Repa.Eval
-import qualified Data.Array.Repa.Eval as R (fromList)
 import Data.Array.Repa.Repr.ForeignPtr
 import Data.Array.Repa.Repr.ByteString
 import Data.Vector.Unboxed.Base
 import Data.ByteString (pack)
-  -- import Data.Array.Repa.IO.DevIL
 
 import qualified Codec.BMP as BMP
 
@@ -78,49 +70,62 @@ data CamState = CamState {
   }
                              
 
-data V4lCam' m a = V4lCam' { unV4lCam :: InnerMonad m a }
+data V4lCamT m a = V4lCamT { unV4lCam :: InnerMonad m a }
 
 
 type InnerMonad m a = ErrorT String (StateT CamState m) a
 
 
-instance Monad m => Monad (V4lCam' m) where
-  f >>= g = V4lCam' $ unV4lCam f >>= (unV4lCam . g)
-  return = V4lCam' . return
+instance MonadTrans V4lCamT where
+  lift = V4lCamT . lift . lift
+
+
+instance MonadIO m => MonadIO (V4lCamT m) where
+  liftIO = lift . liftIO
+
+
+instance Monad m => Monad (V4lCamT m) where
+  f >>= g = V4lCamT $ unV4lCam f >>= (unV4lCam . g)
+  return = V4lCamT . return
   
 
-instance Monad m => Functor (V4lCam' m) where
+instance Monad m => Functor (V4lCamT m) where
   fmap f act = act >>= return . f
     
                
-instance Monad m =>  MonadPlus (V4lCam' m) where
-  mzero = V4lCam' $ mzero
-  mplus (V4lCam' a) (V4lCam' b) = V4lCam' $ mplus a b
+instance Monad m =>  MonadPlus (V4lCamT m) where
+  mzero = V4lCamT $ mzero
+  mplus (V4lCamT a) (V4lCamT b) = V4lCamT $ mplus a b
 
 
-instance MonadIO m => MonadIO (V4lCam' m) where
-    liftIO = V4lCam' . lift . lift . liftIO
+-- instance MonadIO m => MonadIO (V4lCamT m) where
+--    liftIO = V4lCamT . lift . lift . liftIO
 
 
-instance Monad m => MonadError String (V4lCam' m) where
-    throwError = V4lCam' . throwError
-    catchError (V4lCam' act) errf = V4lCam' $ catchError act (unV4lCam . errf)      
+instance Monad m => MonadError String (V4lCamT m) where
+    throwError = V4lCamT . throwError
+    catchError (V4lCamT act) errf = V4lCamT $ catchError act (unV4lCam . errf)      
 
 
-getState :: Monad m => V4lCam' m CamState
-getState = V4lCam' $ lift get
+{-| Get the state data. Internal. -}
+getState :: Monad m => V4lCamT m CamState
+getState = V4lCamT $ lift get
 
 
-setState :: Monad m => CamState -> V4lCam' m ()
-setState = V4lCam' . lift . put
+{-| Set the state data. Internal. -}
+setState :: Monad m => CamState -> V4lCamT m ()
+setState = V4lCamT . lift . put
 
 
-getDev :: Monad m => V4lCam' m Device
+{-| Get the device. Internal. -}
+getDev :: Monad m => V4lCamT m Device
 getDev = camstateDev `fmap` getState >>= maybe (throwError "Device not open.") return
 
 
-
-saveBmp :: (MonadIO m, Repr r Word8) => FilePath -> Image r Word8 -> V4lCam' m ()
+{-| Save the given 'Image' as BMP in the file with the given name.
+This function currently takes a detour via lists when converting the image to a 'ByteString',
+and is therefore probably slower than necessary (FIXME). -}
+saveBmp :: (MonadIO m, Repr r Word8) => FilePath -> Image r Word8 -> V4lCamT m ()
 saveBmp name i = do
   -- This does not compile; why not? Fill instances missing in Repa?
   -- a <- liftIO $ ((copyP i :: IO (Image B Word8)) >>=
@@ -137,25 +142,31 @@ saveBmp name i = do
   where (Z :. h :. w :. k) = extent i
                  
 
-
+{-| Convert the given 'Webcam' to a name (of a device that can be opened). -}
 camToName :: Webcam -> String
 camToName (Webcam n) = "/dev/video" ++ show n
 
 
-openCam :: MonadIO m => Webcam -> V4lCam' m ()
+{-| Open the given 'Webcam'. -}
+openCam :: MonadIO m => Webcam -> V4lCamT m ()
 openCam w = do
   let name = camToName w
   mdev <- liftIO $ Just `fmap` openDevice name `onException` return Nothing
   case mdev of
-    Just dev -> V4lCam' $ lift $ modify $ \s -> s { camstateDev = Just dev }
+    Just dev -> V4lCamT $ lift $ modify $ \s -> s { camstateDev = Just dev }
     _        -> throwError $ "Could not open device " ++ name
 
 
-closeCam :: MonadIO m => V4lCam' m ()
+{-| Closes the currently open 'Webcam'. -}
+closeCam :: MonadIO m => V4lCamT m ()
 closeCam = getDev >>= liftIO . closeDevice
 
 
-runCam :: MonadIO m => V4lCam' m a -> Webcam -> m (Either String a)
+{-| Given a 'Webcam', runs a 'V4lCamT' action with it.
+All actions may 'throwError', which can be caught with 'catchError'. 
+In case of an error, 'runCam' returns 'Left' with an errormessage. 
+Otherwise, it returns a 'Right' with the result. -}
+runCam :: MonadIO m => V4lCamT m a -> Webcam -> m (Either String a)
 runCam act cam = r
     where 
       uact = unV4lCam ((openCam cam >> findImageFormat >> act >>= \a -> closeCam >> return a) 
@@ -166,7 +177,9 @@ runCam act cam = r
       s    = CamState cam Nothing Nothing
 
 
-grab :: MonadIO m => V4lCam' m (Image U Word8)
+{-| Grab a new image from the currently open camera.
+May 'throwError' if something goes wrong. -}
+grab :: MonadIO m => V4lCamT m (Image U Word8)
 grab = do 
   dev <- getDev
   format <- getImageFormat
@@ -174,21 +187,23 @@ grab = do
   -- runIL (writeImage "testimage.jpg" img)
 
     
-getImageFormat :: Monad m => V4lCam' m ImageFormat
+{-| Get the currently used image format.
+May 'throwError' if the format has not been set. -}
+getImageFormat :: Monad m => V4lCamT m ImageFormat
 getImageFormat = camstateFormat `fmap` getState >>= maybe (throwError "Format is not set.") return
 
 
-setSize :: (Int, Int) -> V4lCam' m ()
+setSize :: (Int, Int) -> V4lCamT m ()
 setSize (w,h) = undefined
 
 
-getSize :: V4lCam' m (Int, Int)
+getSize :: V4lCamT m (Int, Int)
 getSize = undefined
 
 
 --------------------------------------------------------------------------------
 
-
+{-| Choose a "suitable" size from a bunch of frame sizes. -}
 chooseSize :: FrameSizes -> Maybe FrameSize
 chooseSize (DiscreteSizes s) = let l = reverse $ sortBy (\a b -> compare (frameWidth a) (frameWidth b)) $ S.toList s
                          in maybeMedian l
@@ -206,7 +221,11 @@ maybeMedian l = Just $ l !! n
         m = length l
                                     
 
-findImageFormat :: MonadIO m => V4lCam' m ()
+{-| Finds an image format, sets the current device to it and sets it so it can be 
+retrieved with 'getImageFormat'. 
+Currently this function will set a 'PixelRGB24' format.
+Add more intelligence to this if needed. -}
+findImageFormat :: MonadIO m => V4lCamT m ()
 findImageFormat = do
   dev <- getDev
   (info,cap) <- liftIO $ deviceInfoCapabilities dev
@@ -229,11 +248,14 @@ findImageFormat = do
   getState >>= \s -> setState (s { camstateFormat = Just format } )
 
 
+{-| Flips the Y axis of a given image. -}
 flipY :: Repr r a => Image r a -> Image D a
 flipY i = backpermute sh (\(Z :. y :. x :. j) -> Z :. h - 1 - y :. x :. j) i
   where sh@(Z :. h :. w :. k) = extent i
 
 
+{-| Converts a RGB image from the camera to an RGBA image that can e.g. be
+stored as BMP with 'saveBMP'. -}
 rgbToRgba :: Num a => Repr r a => Image r a -> Image D a
 rgbToRgba src | k == 3 = flipY $ traverse src shf f
               | k == 4 = delay src
