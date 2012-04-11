@@ -9,6 +9,7 @@ module Graphics.Webcam.Linux.Internal
        ( 
          Image
        , V4lCamT (..)
+       , Control.Monad.Trans.liftIO
        , InnerMonad (..)
        , getState
        , setState
@@ -18,7 +19,11 @@ module Graphics.Webcam.Linux.Internal
        , closeCam
        , Webcam (..)
        , runCam
+       , runCamWith
        , grab
+       , grabF
+       , rgbaToAbgr
+       , flipY
        , saveBmp
        , getImageFormat
        , setSize
@@ -42,6 +47,7 @@ import Control.Exception
 import Foreign.Ptr
 import Foreign.Storable
 import Foreign.ForeignPtr
+import Foreign.Marshal.Array
 
 import Data.Array.Repa hiding ((++))
 import Data.Array.Repa.Eval
@@ -177,6 +183,16 @@ runCam act cam = r
       s    = CamState cam Nothing Nothing
 
 
+runCamWith :: MonadIO m => CamState -> V4lCamT m a -> m (Either String a)
+runCamWith s act = r
+  where        
+    uact = unV4lCam (act
+                     `catchError` 
+                     (\e -> liftIO (putStrLn "final close!") >> closeCam >> throwError e))
+    eact = runErrorT uact
+    r    = evalStateT eact s
+
+
 {-| Grab a new image from the currently open camera.
 May 'throwError' if something goes wrong. -}
 grab :: MonadIO m => V4lCamT m (Image U Word8)
@@ -186,7 +202,22 @@ grab = do
   liftIO $ withFrame dev format (\p i -> frameToRGBA format p >>= computeP)
   -- runIL (writeImage "testimage.jpg" img)
 
+
+grabF :: MonadIO m => (Image D Word8 -> Image D Word8) -> V4lCamT m (Image F Word8)
+grabF conv = do 
+  dev <- getDev
+  format <- getImageFormat
+  (w,h) <- getSize
+  liftIO $ withFrame dev format $ \p i -> do
+    f <- frameToRGBA format p
+    let n = w * h * 4
+    fa <- mallocForeignPtrArray n
+    computeIntoP fa (conv f)
+    return $ fromForeignPtr (Z :. h :. w :. 4) fa
+  -- runIL (writeImage "testimage.jpg" img)
+
     
+
 {-| Get the currently used image format.
 May 'throwError' if the format has not been set. -}
 getImageFormat :: Monad m => V4lCamT m ImageFormat
@@ -197,8 +228,9 @@ setSize :: (Int, Int) -> V4lCamT m ()
 setSize (w,h) = undefined
 
 
-getSize :: V4lCamT m (Int, Int)
-getSize = undefined
+getSize :: Monad m => V4lCamT m (Int, Int)
+getSize = getImageFormat >>= \f -> return (imageWidth f, imageHeight f)
+  
 
 
 --------------------------------------------------------------------------------
@@ -254,6 +286,12 @@ flipY i = backpermute sh (\(Z :. y :. x :. j) -> Z :. h - 1 - y :. x :. j) i
   where sh@(Z :. h :. w :. k) = extent i
 
 
+rgbaToAbgr :: Repr r a => Image r a -> Image D a
+rgbaToAbgr i = backpermute sh (\(Z :. y :. x :. j) -> Z :. y :. x :. (k - 1 - j)) i
+  where sh@(Z :. h :. w :. k) = extent i
+{-# INLINE rgbaToAbgr #-}
+
+{- FIXME: To make things faster, put swapping RGBA directly in here. -}
 {-| Converts a RGB image from the camera to an RGBA image that can e.g. be
 stored as BMP with 'saveBMP'. -}
 rgbToRgba :: Num a => Repr r a => Image r a -> Image D a
@@ -262,7 +300,7 @@ rgbToRgba src | k == 3 = flipY $ traverse src shf f
               | otherwise = error "Could not convert image to rgba"
   where shf _                                = (Z :. h :. w :. 4)
         (Z :. h :. w :. k)                   = extent src
-        f g p@(Z :. _ :. _ :. j) | j == 3     = 255
+        f g p@(Z :. y :. x :. j) | j == 3     = 255
                                  | otherwise = g p
 
 
@@ -278,48 +316,3 @@ frameToRGBA i p = do
       h   = imageHeight i
   return $ rgbToRgba src
 
-
--- Kleiner Uebungstext zwischendurch:
--- Was man nicht alles macht, um ein kleines bisschen besser zu werden.
--- Wenn ich mich sehr konzentriere, geht Colemak schon erklecklich schnell.
--- Ich muss aber immernoch auf meiner alten Tastatur das 'c' mit dem Zeigefinger anschlagen,
--- weil die Bewegung mit dem Mittelfinger unangenehm ist. Auf der TypeMatrix-Tastatur wird das wohl anders sein.
--- Das 'e' und das 'i' verwechsle ich noch manchmal, genauso wie das 's' und das 'r',
--- wenn ich mich nicht konzentriere.
--- Ich habe leider keine Ahnung, wie schnell ich mit qwerty bin, so dass ich keinen direkten Vergleich habe.
--- äääääääh... Moment mal...
-
-
-{-
-Noch ein kleiner Colemak-Übungstext zwischendurch.
-Je später es wird, desto schwieriger wird das tippen.
-Ich mache langsam immer mehr Fehler und versuche, immer schneller zu tippen.
-Das vertauschte N macht mich noch wahnsinnig ;) kkkkkkk 
-KTouch hat all seine Lektionen verschossen und wieder von vorne angefangen.
-Immerhin konnte ich jetzt schon in den ersten 5 Lektionen einen Fortschritt feststellen.
-97% Trefferquote und 63 Worte pro Minute (179 Anschläge). Ich vermute, dass das in den höheren 
-Lektionen wieder etwas langsamer wird, wenn alle Tasten dazukommen und 
-die Wörter länger sind, aber das ist schonmal ein Lichtblick. -}
-
-{-| Copies an image from the camera frame to an RGBA 'Repa' array. -}
--- frameToRGBAOld :: (Data.Vector.Unboxed.Base.Unbox a, Num a, Elt a, Storable a) => ImageFormat -> Ptr a -> IO (Image a)
--- frameToRGBAOld i p = do
---   let ps = reverse $ take h $ iterate (\a -> plusPtr a inc) p
---       inc = imageBytesPerLine i
---       peekLine l p = do
---         let ps = take l $ iterate (flip advancePtr 1) p
---             f ([],k') | k' == 0 = Just (255, ([], 3))
---                       | otherwise = Nothing
---             f (xs@(x:r),k') | k' == 0 = Just (255, (xs, 3))
---                             | otherwise = let k'' = k' - 1 
---                                           in 
---                                            Just (x, (r, k''))
-                        
---         els <- mapM peek ps
---         return $ unfoldr f (els,3)
-        
---       (w,h) = (imageWidth i, imageHeight i)
---       sh = shapeOfList [k,w,h]
---       k = 4
---   els <- concat `fmap` mapM (peekLine (w*3)) ps
---   now $ R.fromList sh els
