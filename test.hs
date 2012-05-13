@@ -18,7 +18,6 @@ produceFrame s t = do
           fp = toForeignPtr fimg
       in return bm)
   either (const $ error "ERROR!") (return) e
-                   
                     
 
 -- main = runCam (forM [1..100] (const grab) >> grab >>= saveBmp "test.bmp") (Webcam 0)

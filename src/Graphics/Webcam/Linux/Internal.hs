@@ -30,6 +30,7 @@ module Graphics.Webcam.Linux.Internal
        , getSize
        , chooseSize
        , frameToRGBA
+       , frameToRGBAF
        , findImageFormat
        , CamState (..)
        ) where
@@ -183,6 +184,7 @@ runCam act cam = r
       s    = CamState cam Nothing Nothing
 
 
+{-| Like 'runCam', but runs with a given state. -}
 runCamWith :: MonadIO m => CamState -> V4lCamT m a -> m (Either String a)
 runCamWith s act = r
   where        
@@ -203,19 +205,20 @@ grab = do
   -- runIL (writeImage "testimage.jpg" img)
 
 
+{-| Like 'grab', but applies the given function to the captured image. -}
 grabF :: MonadIO m => (Image D Word8 -> Image D Word8) -> V4lCamT m (Image F Word8)
 grabF conv = do 
   dev <- getDev
   format <- getImageFormat
   (w,h) <- getSize
   liftIO $ withFrame dev format $ \p i -> do
-    f <- frameToRGBA format p
+    f <- frameToRGBAF format p conv
     let n = w * h * 4
     fa <- mallocForeignPtrArray n
-    computeIntoP fa (conv f)
+    computeIntoP fa f -- (conv f)
     return $ fromForeignPtr (Z :. h :. w :. 4) fa
   -- runIL (writeImage "testimage.jpg" img)
-
+{- INLINE grabF -}
     
 
 {-| Get the currently used image format.
@@ -224,10 +227,14 @@ getImageFormat :: Monad m => V4lCamT m ImageFormat
 getImageFormat = camstateFormat `fmap` getState >>= maybe (throwError "Format is not set.") return
 
 
+{-| FIXME: not implemented!  This function sets the size to the next fitting size the
+connected web camera supports. You can query the actual size with 'getSize'. -}
 setSize :: (Int, Int) -> V4lCamT m ()
 setSize (w,h) = undefined
 
 
+{-| Returns the image with and height of the images captured by
+the currently open web cam. -}
 getSize :: Monad m => V4lCamT m (Int, Int)
 getSize = getImageFormat >>= \f -> return (imageWidth f, imageHeight f)
   
@@ -315,4 +322,14 @@ frameToRGBA i p = do
       w   = imageWidth i
       h   = imageHeight i
   return $ rgbToRgba src
+
+
+frameToRGBAF :: (Data.Vector.Unboxed.Base.Unbox a, Num a, Elt a, Storable a) => ImageFormat -> Ptr a -> (Image D a -> Image D a) -> IO (Image D a)
+frameToRGBAF i p f = do
+  fp <- newForeignPtr_ p
+  let src = fromForeignPtr sh fp 
+      sh  = Z :. h :. w :. 3
+      w   = imageWidth i
+      h   = imageHeight i
+  return $ (f . rgbToRgba) src
 
