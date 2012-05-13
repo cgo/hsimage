@@ -40,7 +40,7 @@ Build-type:          Simple
 -- Extra-source-files:  
 
 -- Constraint on the version of Cabal needed to build this package.
-Cabal-version:       >=1.2
+Cabal-version:       >=1.8
 
 
 Library
@@ -69,3 +69,10 @@ Library
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
   -- Build-tools:         
   
+Executable test
+        main-is: test.hs
+        ghc-options: -fllvm -O2 -threaded
+        build-depends: gloss >= 1.7.2.1,
+                       hsimage >= 0.1,
+                       base >= 4.5.0,
+                       repa >= 3.1.0.1
