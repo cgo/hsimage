@@ -1,0 +1,7 @@
+Provides high-level access to webcams for Haskell programs.
+
+The current state is that the library provides a monad for
+grabbing images from a webcam under Linux. In the future, more functionality like 
+image processing functions and other input devices may be added.
+
+If anyone wants to help, please contact me!
