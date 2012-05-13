@@ -10,10 +10,13 @@ Name:                hsimage
 Version:             0.1
 
 -- A short (one-line) description of the package.
-Synopsis:            Imaging
+Synopsis:            Provides high-level access to webcams.
 
 -- A longer description of the package.
--- Description:         
+Description:         The current state is that the library provides a monad for
+   grabbing images from a webcam under Linux. In the future, more functionality like 
+   image processing functions and other input devices may be added.
+   If anyone wants to help, please contact me!
 
 -- The license under which the package is released.
 License:             GPL
@@ -69,8 +72,8 @@ Library
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
   -- Build-tools:         
   
-Executable test
-        main-is: test.hs
+Executable example
+        main-is: example.hs
         ghc-options: -fllvm -O2 -threaded
         build-depends: gloss >= 1.7.2.1,
                        hsimage >= 0.1,
