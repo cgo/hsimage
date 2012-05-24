@@ -21,10 +21,13 @@ produceFrame s t = do
                     
 
 -- main = runCam (forM [1..100] (const grab) >> grab >>= saveBmp "test.bmp") (Webcam 0)
-main = runCam (grab >>= saveBmp "1.bmp" >> 
-               grab >>= saveBmp "2.bmp" >> 
-               grab >>= saveBmp "3.bmp" >>
-               getSize >>= \(w,h) ->
-                getState >>= \st ->
-                liftIO (animateIO (InWindow "Hello, World!" (w,h) (10,10)) (makeColor 1 1 1 1) (produceFrame st))
-              ) (Webcam 0) >>= putStrLn . show
+main = do 
+  a <- runCam (Webcam 0) $
+       setSize (300,300) >>
+       grab >>= saveBmp "1.bmp" >> 
+       grab >>= saveBmp "2.bmp" >> 
+       grab >>= saveBmp "3.bmp" >>
+       getSize >>= \(w,h) ->
+       getState >>= \st ->
+       liftIO (animateIO (InWindow "Hello, World!" (w,h) (10,10)) (makeColor 1 1 1 1) (produceFrame st))
+  putStrLn $ show a

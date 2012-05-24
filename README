@@ -4,4 +4,14 @@ The current state is that the library provides a monad for
 grabbing images from a webcam under Linux. In the future, more functionality like 
 image processing functions and other input devices may be added.
 
+For images, repa arrays are used. Therefore, all the repa goodness
+can be used with the data. It should also be possible without too much hassle 
+to write a function which gets the data into a different type of array,
+if that is necessary.
+
+Getting an image with a v4l webcam works like this:
+
+> import Graphics.Webcam.Linux
+> main = runCam (grab >>= saveBmp "my_image.bmp") (Webcam 0)
+
 If anyone wants to help, please contact me!

@@ -7,37 +7,42 @@
 
 module Graphics.Webcam.Linux.Internal
        ( 
+         -- * Data Types
          Image
-       , V4lCamT (..)
-       , Control.Monad.Trans.liftIO
-       , InnerMonad (..)
-       , getState
-       , setState
-       , getDev
-       , camToName
-       , openCam
-       , closeCam
        , Webcam (..)
+         -- * V4L Monad
+       , V4lCamT (..)
+       , InnerMonad (..)
+       , Control.Monad.Trans.liftIO
+       -- ** Running the Monad
        , runCam
        , runCamWith
-       , grab
-       , grabF
-       , rgbaToAbgr
-       , flipY
-       , saveBmp
+       -- ** Functions in the V4L Monad
+       , getState
+       , setState
+       , openCam
+       , closeCam
        , getImageFormat
        , setSize
        , getSize
+       , grab
+       , grabF
+       , getDev
+       , saveBmp
+       , findImageFormat
+       -- * Other useful functions
+       , camToName
+       , rgbaToAbgr
+       , flipY
        , chooseSize
        , frameToRGBA
        , frameToRGBAF
-       , findImageFormat
        , CamState (..)
        ) where
 
 import Graphics.V4L2
 import qualified Data.Set as S (toList)
-import Data.List (sortBy)
+import Data.List (sortBy,minimumBy)
 import Data.Word
 import Control.Monad
 import Control.Monad.State
@@ -59,15 +64,12 @@ import Data.ByteString (pack)
 
 import qualified Codec.BMP as BMP
 
+
+{-| An image data type. This uses the Array type Data.Array.Repa.Array. -}
 type Image r a = Array r DIM3 a
 
 
 data Webcam = Webcam Int
-
--- class Monad m => Webcam a m where
---   webcamGetSizes :: a -> m [(Int, Int)]
---   webcamSetSize :: a -> (Int, Int) -> m ()
---   webcamGrab :: a -> m (Image Word8)
 
 
 data CamState = CamState { 
@@ -172,9 +174,17 @@ closeCam = getDev >>= liftIO . closeDevice
 {-| Given a 'Webcam', runs a 'V4lCamT' action with it.
 All actions may 'throwError', which can be caught with 'catchError'. 
 In case of an error, 'runCam' returns 'Left' with an errormessage. 
-Otherwise, it returns a 'Right' with the result. -}
-runCam :: MonadIO m => V4lCamT m a -> Webcam -> m (Either String a)
-runCam act cam = r
+Otherwise, it returns a 'Right' with the result. 
+
+This function sets a "reasonable" image format using 'findImageFormat'
+after opening the webcam. Then, the supplied action is run and the camera
+is closed again.
+
+You may want to set a different image size or image format,
+when that is supported.
+-}
+runCam :: MonadIO m => Webcam -> V4lCamT m a -> m (Either String a)
+runCam cam act = r
     where 
       uact = unV4lCam ((openCam cam >> findImageFormat >> act >>= \a -> closeCam >> return a) 
                        `catchError` 
@@ -227,11 +237,20 @@ getImageFormat :: Monad m => V4lCamT m ImageFormat
 getImageFormat = camstateFormat `fmap` getState >>= maybe (throwError "Format is not set.") return
 
 
-{-| FIXME: not implemented!  This function sets the size to the next fitting size the
+{-| This function sets the size to the next fitting size the
 connected web camera supports. You can query the actual size with 'getSize'. -}
-setSize :: (Int, Int) -> V4lCamT m ()
-setSize (w,h) = undefined
-
+setSize :: MonadIO m => (Int, Int) -> V4lCamT m ()
+setSize (w,h) = do
+  szs <- getPossibleSizes
+  let (w',h') = chooseClosestSize (w,h) szs
+  fmt <- getImageFormat
+  let fmt' = fmt { imageWidth = w',
+                   imageHeight = h' }
+  dev <- getDev
+  liftIO $ setFormat dev Capture fmt'
+  format <- liftIO $ getFormat dev Capture
+  getState >>= \s -> setState (s { camstateFormat = Just format } )
+  return ()
 
 {-| Returns the image with and height of the images captured by
 the currently open web cam. -}
@@ -249,6 +268,18 @@ chooseSize (DiscreteSizes s) = let l = reverse $ sortBy (\a b -> compare (frameW
 chooseSize (StepwiseSizes minW maxW stepW minH maxH stepH) = Just $ FrameSize maxW maxH
 
 
+
+chooseClosestSize :: (Int, Int) -> FrameSizes -> (Int, Int)
+chooseClosestSize (w,h) (DiscreteSizes s) = (w',h')
+  where l         = Prelude.map (\a -> (frameWidth a, frameHeight a)) $ S.toList s
+        l'        = Prelude.map (\(x,y) -> (x,y,(w-x)^2 + (h-y)^2)) l
+        (w',h',_) = minimumBy (\(_,_,a) (_,_,b) -> compare a b) l'
+
+chooseClosestSize (w,h) (StepwiseSizes minW maxW stepW minH maxH stepH) = (w', h')
+  where w' = min minW $ max ((w `div` stepW) * stepW) minW
+        h' = min minH $ max ((h `div` stepH) * stepH) minH
+
+
 maybeHead :: [a] -> Maybe a
 maybeHead [] = Nothing
 maybeHead (a:_) = Just a
@@ -260,6 +291,13 @@ maybeMedian l = Just $ l !! n
         m = length l
                                     
 
+getPossibleSizes :: MonadIO m => V4lCamT m FrameSizes
+getPossibleSizes = do
+  dev <- getDev
+  format' <- getImageFormat
+  liftIO $ queryFrameSizes dev (imagePixelFormat format')
+  
+  
 {-| Finds an image format, sets the current device to it and sets it so it can be 
 retrieved with 'getImageFormat'. 
 Currently this function will set a 'PixelRGB24' format.
@@ -268,7 +306,7 @@ findImageFormat :: MonadIO m => V4lCamT m ()
 findImageFormat = do
   dev <- getDev
   (info,cap) <- liftIO $ deviceInfoCapabilities dev
-  liftIO $ putStrLn $ show cap
+  -- liftIO $ putStrLn $ show cap
   liftIO $ setVideoInput dev (fromIntegral 0)
          
   sizes <- liftIO $ queryFrameSizes dev PixelRGB24
@@ -280,7 +318,7 @@ findImageFormat = do
   let format = format' { imageWidth = sx,
                          imageHeight = sy,
                          imagePixelFormat = PixelRGB24 }
-  liftIO $ putStrLn ("Size: " ++ show sx ++ " , " ++ show sy)
+  -- liftIO $ putStrLn ("Size: " ++ show sx ++ " , " ++ show sy)
   liftIO $ setFormat dev Capture format                       
   format <- liftIO $ getFormat dev Capture
   liftIO $ putStrLn $ show format
@@ -323,8 +361,14 @@ frameToRGBA i p = do
       h   = imageHeight i
   return $ rgbToRgba src
 
-
-frameToRGBAF :: (Data.Vector.Unboxed.Base.Unbox a, Num a, Elt a, Storable a) => ImageFormat -> Ptr a -> (Image D a -> Image D a) -> IO (Image D a)
+{-| Like 'frameToRGBA', but applies 
+ > f . rgbToRgba
+ to the image. -}
+frameToRGBAF :: (Data.Vector.Unboxed.Base.Unbox a, Num a, Elt a, Storable a) => 
+                ImageFormat                  -- ^ The image format 
+                -> Ptr a                     -- ^ The image data
+                -> (Image D a -> Image D a)  -- ^ The function /f/ that is applied to the data
+                -> IO (Image D a)            -- ^ Returns the image.
 frameToRGBAF i p f = do
   fp <- newForeignPtr_ p
   let src = fromForeignPtr sh fp 

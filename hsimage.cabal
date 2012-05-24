@@ -46,6 +46,20 @@ Build-type:          Simple
 Cabal-version:       >=1.8
 
 
+category: Graphics
+license: GPL
+license-file: LICENSE
+copyright: 2011-2012, Christian Gosch
+maintainer: Christian Gosch <github@goschs.de>
+stability: Experimental
+homepage: https://github.com/cgo/hsimage
+
+-- extra-source-files: README
+
+source-repository head
+  type: git
+  location: git://github.com/cgo/hsimage.git
+
 Library
   hs-source-dirs: src
   -- Modules exported by the library.
@@ -66,15 +80,13 @@ Library
                  bmp >= 1.2.1,
                  bytestring >= 0.9.2
   
-  -- Modules not exported by this package.
-  -- Other-modules:       
-  
+ 
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
   -- Build-tools:         
   
 Executable example
         main-is: example.hs
-        ghc-options: -fllvm -O2 -threaded
+        ghc-options: -fllvm -threaded
         build-depends: gloss >= 1.7.2.1,
                        hsimage >= 0.1,
                        base >= 4.5.0,
