@@ -4,6 +4,10 @@ The current state is that the library provides a monad for
 grabbing images from a webcam under Linux. In the future, more functionality like 
 image processing functions and other input devices may be added.
 
+Last time I checked, the v4l2 package was not on hackage, 
+but it can be retrieved from here:
+ https://gitorious.org/hsv4l2
+
 For images, repa arrays are used. Therefore, all the repa goodness
 can be used with the data. It should also be possible without too much hassle 
 to write a function which gets the data into a different type of array,

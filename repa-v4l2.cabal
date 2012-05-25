@@ -7,7 +7,7 @@ Name:                repa-v4l2
 -- The package version. See the Haskell package versioning policy
 -- (http://www.haskell.org/haskellwiki/Package_versioning_policy) for
 -- standards guiding when and how versions should be incremented.
-Version:             0.1
+Version:             0.1.0.0
 
 -- A short (one-line) description of the package.
 Synopsis:            Provides high-level access to webcams.
@@ -17,6 +17,10 @@ Description:         The current state is that the library provides a monad for
    grabbing images from a webcam under Linux. In the future, more functionality like 
    image processing functions and other input devices may be added.
    If anyone wants to help, please contact me!
+
+   It has been pointed out on haskell-cafe that the v4l2 package that
+   is needed by this package is not (yet?) on hackage. Therefore
+   this library is not building on hackage.   
 
 -- The license under which the package is released.
 License:             LGPL
@@ -40,7 +44,7 @@ Build-type:          Simple
 
 -- Extra files to be distributed with the package, such as examples or
 -- a README.
--- Extra-source-files:  
+Extra-source-files:  README
 
 -- Constraint on the version of Cabal needed to build this package.
 Cabal-version:       >=1.8
