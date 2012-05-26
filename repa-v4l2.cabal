@@ -18,9 +18,9 @@ Description:         The current state is that the library provides a monad for
    image processing functions and other input devices may be added.
    If anyone wants to help, please contact me!
 
-   It has been pointed out on haskell-cafe that the v4l2 package that
-   is needed by this package is not (yet?) on hackage. Therefore
-   this library is not building on hackage.   
+   The v4l2 C library is not found on hackage,therefore
+   this library is not building on hackage. Until it does,
+   the documentation can be found here: http://www.goschs.de/repa-v4l2/index.html.
 
 -- The license under which the package is released.
 License:             LGPL
