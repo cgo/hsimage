@@ -134,7 +134,7 @@ getDev = camstateDev `fmap` getState >>= maybe (throwError "Device not open.") r
 {-| Save the given 'Image' as BMP in the file with the given name.
 This function currently takes a detour via lists when converting the image to a 'ByteString',
 and is therefore probably slower than necessary (FIXME). -}
-saveBmp :: (MonadIO m, Repr r Word8) => FilePath -> Image r Word8 -> V4lCamT m ()
+saveBmp :: (MonadIO m, Source r Word8) => FilePath -> Image r Word8 -> V4lCamT m ()
 saveBmp name i = do
   -- This does not compile; why not? Fill instances missing in Repa?
   -- a <- liftIO $ ((copyP i :: IO (Image B Word8)) >>=
@@ -326,12 +326,12 @@ findImageFormat = do
 
 
 {-| Flips the Y axis of a given image. -}
-flipY :: Repr r a => Image r a -> Image D a
+flipY :: Source r a => Image r a -> Image D a
 flipY i = backpermute sh (\(Z :. y :. x :. j) -> Z :. h - 1 - y :. x :. j) i
   where sh@(Z :. h :. w :. k) = extent i
 
 
-rgbaToAbgr :: Repr r a => Image r a -> Image D a
+rgbaToAbgr :: Source r a => Image r a -> Image D a
 rgbaToAbgr i = backpermute sh (\(Z :. y :. x :. j) -> Z :. y :. x :. (k - 1 - j)) i
   where sh@(Z :. h :. w :. k) = extent i
 {-# INLINE rgbaToAbgr #-}
@@ -339,7 +339,7 @@ rgbaToAbgr i = backpermute sh (\(Z :. y :. x :. j) -> Z :. y :. x :. (k - 1 - j)
 {- FIXME: To make things faster, put swapping RGBA directly in here. -}
 {-| Converts a RGB image from the camera to an RGBA image that can e.g. be
 stored as BMP with 'saveBMP'. -}
-rgbToRgba :: Num a => Repr r a => Image r a -> Image D a
+rgbToRgba :: Num a => Source r a => Image r a -> Image D a
 rgbToRgba src | k == 3 = flipY $ traverse src shf f
               | k == 4 = delay src
               | otherwise = error "Could not convert image to rgba"
