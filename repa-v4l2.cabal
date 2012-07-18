@@ -18,9 +18,6 @@ Description:         The current state is that the library provides a monad for
    image processing functions and other input devices may be added.
    If anyone wants to help, please contact me!
 
-   The v4l2 C library is not found on hackage,therefore
-   this library is not building on hackage. Until it does,
-   the documentation can be found here: http://www.goschs.de/repa-v4l2/index.html.
 
 -- The license under which the package is released.
 License:             LGPL
@@ -70,7 +67,7 @@ Library
   
   -- Packages needed in order to build this package.
   Build-depends: base == 4.*,
-                 repa >= 3.0,
+                 repa >= 3.2.1.1,
                  --repa-devil >= 0.1.2,
                  transformers >= 0.2.2,
                  containers >= 0.2,
